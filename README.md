@@ -110,37 +110,3 @@ that is not a `UnityEngine.Object` at edit time (where Unity's `Undo` can't be u
 `Push` stores a JSON snapshot (with the `UnityJson` converters); `Undo`/`Redo` return a fresh
 copy. Reusable by any tool that edits a POCO/JSON model (Ogham graph editor, HATE Forge, ...).
 The editor chooses Push granularity and wires its own Ctrl+Z / Ctrl+Y.
-
-## Status
-
-- **P1 (subsystem spine)**: done. Scope/attribute, `Subsystem` base, dependency-ordered
-  Global registry + `GameFramework.Get<T>()`, reflection discovery, boot/teardown.
-- **P2 (PlayerLoop tick dispatch)**: done. Six phases injected as children of FixedUpdate /
-  Update; allocation-free dispatch; idempotent install, self-healing across
-  enter-play-without-domain-reload, restored on quit / exiting play mode.
-- **P3 (World + WorldManager)**: done. `World` container + `WorldManagerSubsystem` (Global);
-  per-world subsystem discovery/dependency-order/lifecycle and tick (un)registration; hybrid
-  boundary (auto convenience world after globals are up, explicit `CreateWorld` for multi-world);
-  `world.Get<T>()`, `GameFramework.MainWorld` / `CreateWorld`; deferred tick add/remove queue so
-  worlds can churn subsystems mid-tick safely; discovery cached per scope.
-- **P4 (GameMode / GameState / PlayerState)**: done. Optional per-world structure. `Authority`
-  enum + `Revision` change seam (contracts only, no net code). Data/logic split: GameState and
-  PlayerState are plain data on the World (so they survive on a client with no GameMode);
-  GameMode is server-only logic over them with both override hooks and register events.
-  `world.SetState/SetMode/AddPlayer/RemovePlayer/GetPlayer`.
-- **P5 (Settings locate + serialise)**: done. `[Settings]` attribute (Name/Location/Extension/
-  Delivery/Folder) on a plain POCO; editor `SettingsStore.Load/Save/Exists/GetPath` reads/writes
-  Newtonsoft JSON from `ProjectSettings/`, a top-level `Project/<Folder>/`, or anywhere in
-  `Assets/` (located by AssetDatabase GUID, scanned by unique extension, cached; existing files are
-  written back in place so moves are respected). Editor-only; runtime delivery is per-tool/P6.
-- **P6 (generators + metadata)**: done. `ISettingsGenerator` (Name/Output/IsStale/Generate) +
-  `SettingsGenerators` registry (GenerateAll/GenerateStale/StaleNames, type-discovered); one shared
-  build hook that regenerates `RuntimeAsset` generators and guards `SourceCode` ones (fails the build
-  if stale). Domain-agnostic `ISettingsMetadataProvider` + `SettingsMetadata.All<T>()/First<T>()` so
-  tools read each other's metadata by contract without re-scanning. `Tools ▸ Heathen ▸ Game Framework`
-  menu. Tools keep their own bake logic.
-
-**v1 feature-complete.** Next work is retro-fitting the existing Foundations onto the framework
-(settings relocation, tag ownership/prefix, subsystem registration).
-
-Wired into the ToolkitSource project via a `file:` manifest ref for compile/verify.

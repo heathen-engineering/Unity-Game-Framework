@@ -13,6 +13,23 @@ namespace Heathen
     }
 
     /// <summary>
+    /// How a subsystem comes up. A fundamental, tool-agnostic affordance: the package being present no longer
+    /// implies the external system must run. Lets a developer ship a tool's assemblies but keep it dormant
+    /// (e.g. include Steamworks in an itch.io build without ever initialising Steam), or defer activation until
+    /// the game decides.
+    /// </summary>
+    public enum SubsystemStartMode
+    {
+        /// <summary>Not created at all this session. The default <see cref="Subsystem.ShouldCreate"/> returns false.</summary>
+        Disabled,
+        /// <summary>Created and lifecycle-managed, but the subsystem defers activating its external system in
+        /// <see cref="Subsystem.Initialize"/> until something explicitly asks it to start.</summary>
+        OnDemand,
+        /// <summary>Created and activates its external system in <see cref="Subsystem.Initialize"/> (default).</summary>
+        Automatic,
+    }
+
+    /// <summary>
     /// Declares a type as a framework subsystem and fixes its <see cref="SubsystemScope"/>. The scope
     /// is read at discovery time (before any instance is constructed), which is why it lives on an
     /// attribute rather than only on a virtual property: the framework must know a type's scope without
@@ -56,11 +73,21 @@ namespace Heathen
         public virtual Type[] DependsOn => Array.Empty<Type>();
 
         /// <summary>
-        /// Return <c>false</c> to opt this subsystem out for the current session/world (the package being
-        /// present is the default "enabled"; override for conditional creation). Evaluated after
+        /// How this subsystem comes up (default <see cref="SubsystemStartMode.Automatic"/>). Override to read a
+        /// developer-set, runtime-readable value (e.g. baked into generated code) so a tool can be disabled or
+        /// deferred without removing its package. <see cref="SubsystemStartMode.Disabled"/> means the default
+        /// <see cref="ShouldCreate"/> declines to create it at all; <see cref="SubsystemStartMode.OnDemand"/>
+        /// vs <see cref="SubsystemStartMode.Automatic"/> is honoured by the subsystem inside <see cref="Initialize"/>.
+        /// </summary>
+        public virtual SubsystemStartMode StartMode => SubsystemStartMode.Automatic;
+
+        /// <summary>
+        /// Return <c>false</c> to opt this subsystem out for the current session/world. The default declines
+        /// only when <see cref="StartMode"/> is <see cref="SubsystemStartMode.Disabled"/> (the package being
+        /// present is otherwise "enabled"); override for additional conditional creation. Evaluated after
         /// construction, before <see cref="Initialize"/>.
         /// </summary>
-        public virtual bool ShouldCreate() => true;
+        public virtual bool ShouldCreate() => StartMode != SubsystemStartMode.Disabled;
 
         /// <summary><c>true</c> between a successful <see cref="Initialize"/> and its <see cref="Deinitialize"/>.</summary>
         public bool IsInitialised { get; private set; }

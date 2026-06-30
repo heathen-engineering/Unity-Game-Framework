@@ -17,12 +17,30 @@ namespace Heathen.Editor
     /// </summary>
     public static class SettingsStore
     {
+        // Converters applied to every settings read/write. Seeded with the Unity type converters; a tool adds
+        // its own domain value-type converters via AddConverter (e.g. a type whose data lives in a private
+        // field, or one that should serialise as a single scalar). Mutating the list is reflected on the next
+        // load/save because JsonConvert builds a serializer from these settings per call.
+        private static readonly List<JsonConverter> _converters = new(UnityJson.Converters);
+
         private static readonly JsonSerializerSettings Json = new()
         {
             Formatting        = Formatting.Indented,
             NullValueHandling = NullValueHandling.Ignore,
-            Converters        = UnityJson.Converters,
+            Converters        = _converters,
         };
+
+        /// <summary>
+        /// Register an extra <see cref="JsonConverter"/> applied to all settings load and save. Idempotent.
+        /// Call from an editor <c>[InitializeOnLoad]</c> so it is in place before any settings are read — this
+        /// is how a tool teaches the store to serialise a domain value-type (for example one backed by a
+        /// private field that the default contract would drop, or that carries API-backed computed properties).
+        /// </summary>
+        public static void AddConverter(JsonConverter converter)
+        {
+            if (converter != null && !_converters.Contains(converter))
+                _converters.Add(converter);
+        }
 
         // Cached AssetDatabase GUID per Assets-located type. The GUID follows the file across moves and
         // renames, so a cached entry keeps resolving correctly until the file is deleted.

@@ -29,15 +29,17 @@ namespace Heathen.Editor
 
         private struct Info
         {
-            public Type           Type;
-            public SubsystemScope Scope;
-            public string         Phases;
-            public Type[]         DependsOn;
-            public bool           CtorInspectable;
+            public Type               Type;
+            public SubsystemScope     Scope;
+            public SubsystemStartMode StartMode;
+            public string             Phases;
+            public Type[]             DependsOn;
+            public bool               CtorInspectable;
         }
 
         private List<Info> _all;
         private Dictionary<Type, SubsystemScope> _scopeOf;
+        private Dictionary<Type, ISubsystemConfigEditor> _editors;
         private Vector2 _scroll;
 
         public SubsystemsSettingsProvider() : base("Project/Subsystems", SettingsScope.Project) { }
@@ -92,6 +94,25 @@ namespace Heathen.Editor
             using (new EditorGUI.IndentLevelScope())
             {
                 EditorGUILayout.LabelField("Type", info.Type.FullName);
+
+                // Start mode: editable here when the subsystem's tool provides an ISubsystemConfigEditor (this is
+                // the one standard place to change Disabled / OnDemand / Automatic); otherwise show it read-only.
+                if (_editors.TryGetValue(info.Type, out var editor))
+                {
+                    using (var check = new EditorGUI.ChangeCheckScope())
+                    {
+                        var mode = (SubsystemStartMode)EditorGUILayout.EnumPopup("Start mode", editor.StartMode);
+                        if (check.changed)
+                            editor.StartMode = mode; // setter persists
+                    }
+                    if (!string.IsNullOrEmpty(editor.ApplyHint))
+                        EditorGUILayout.HelpBox(editor.ApplyHint, MessageType.None);
+                }
+                else
+                {
+                    EditorGUILayout.LabelField("Start mode", info.CtorInspectable ? info.StartMode.ToString() : "—");
+                }
+
                 EditorGUILayout.LabelField("Tick phases", info.Phases.Length > 0 ? info.Phases : "—");
 
                 if (info.DependsOn.Length > 0)
@@ -120,24 +141,43 @@ namespace Heathen.Editor
         {
             _all     = new List<Info>();
             _scopeOf = new Dictionary<Type, SubsystemScope>();
+            _editors = new Dictionary<Type, ISubsystemConfigEditor>();
+
+            // Tool-provided start-mode editors, discovered by type (no reference to the tool needed).
+            foreach (var et in TypeCache.GetTypesDerivedFrom<ISubsystemConfigEditor>())
+            {
+                if (et.IsAbstract || et.IsInterface) continue;
+                try
+                {
+                    var editor = (ISubsystemConfigEditor)Activator.CreateInstance(et);
+                    if (editor.SubsystemType != null)
+                        _editors[editor.SubsystemType] = editor;
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"[GameFramework] Could not create subsystem config editor '{et.FullName}': {e.Message}");
+                }
+            }
 
             foreach (var t in TypeCache.GetTypesDerivedFrom<Subsystem>())
             {
                 if (t.IsAbstract) continue;
                 var scope = t.GetCustomAttribute<SubsystemAttribute>(false)?.Scope ?? SubsystemScope.Global;
 
-                Type[] deps = Array.Empty<Type>();
-                bool   ok   = true;
+                Type[]             deps      = Array.Empty<Type>();
+                SubsystemStartMode startMode = SubsystemStartMode.Automatic;
+                bool               ok        = true;
                 // The Subsystem contract requires a trivial, side-effect-free constructor specifically so a
                 // type can be constructed purely to inspect (e.g. read DependsOn) — so this is sanctioned.
                 try
                 {
                     var instance = (Subsystem)Activator.CreateInstance(t);
-                    deps = instance.DependsOn ?? Array.Empty<Type>();
+                    deps      = instance.DependsOn ?? Array.Empty<Type>();
+                    startMode = instance.StartMode;
                 }
                 catch { ok = false; }
 
-                _all.Add(new Info { Type = t, Scope = scope, Phases = PhaseSummary(t), DependsOn = deps, CtorInspectable = ok });
+                _all.Add(new Info { Type = t, Scope = scope, StartMode = startMode, Phases = PhaseSummary(t), DependsOn = deps, CtorInspectable = ok });
                 _scopeOf[t] = scope;
             }
 

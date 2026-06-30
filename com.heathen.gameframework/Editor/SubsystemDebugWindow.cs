@@ -103,6 +103,7 @@ namespace Heathen.Editor
             {
                 Row("Type",        type.FullName);
                 Row("Scope",       s.Scope.ToString());
+                Row("Start mode",  s.StartMode.ToString());
                 Row("Initialised", s.IsInitialised ? "yes" : "no");
                 Row("Tick phases", phases.Length > 0 ? phases : "—");
 

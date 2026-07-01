@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEditor;
 
 namespace Heathen.Editor
@@ -52,13 +53,54 @@ namespace Heathen.Editor
             SettingsGenerators.GenerateStale(GeneratorOutput.RuntimeAsset);
 
             var stale = SettingsGenerators.StaleNames(GeneratorOutput.SourceCode);
-            if (stale.Count == 0) return;
+            if (stale.Count > 0)
+            {
+                // Emitting .cs now would not be compiled into this session, so bounce out of the transition,
+                // then ask + build in edit mode where the recompile is clean.
+                EditorApplication.isPlaying = false;
+                string names = string.Join(", ", stale);
+                EditorApplication.delayCall += () => Prompt(names);
+                return;
+            }
 
-            // Emitting .cs now would not be compiled into this session, so bounce out of the transition,
-            // then ask + build in edit mode where the recompile is clean.
-            EditorApplication.isPlaying = false;
-            string names = string.Join(", ", stale);
-            EditorApplication.delayCall += () => Prompt(names);
+            // No stale generated code, but a subsystem may still report a problem that affects Play (not set up,
+            // misconfigured, …). Warn rather than silently entering a broken session.
+            if (SubsystemHealth.AnyAttention())
+            {
+                EditorApplication.isPlaying = false;
+                EditorApplication.delayCall += PromptHealth;
+            }
+        }
+
+        private static void PromptHealth()
+        {
+            int choice = EditorUtility.DisplayDialogComplex(
+                "Subsystem attention",
+                "One or more subsystems report a problem that may affect Play:\n\n" + HealthSummary(),
+                "Play Anyway",       // 0
+                "Cancel",            // 1
+                "View Subsystems");  // 2
+
+            switch (choice)
+            {
+                case 0:
+                    _bypassNext = true;                 // don't re-prompt for this entry
+                    EditorApplication.isPlaying = true;
+                    break;
+                case 2:
+                    SettingsService.OpenProjectSettings("Project/Subsystems");
+                    break;
+                // case 1: Cancel — stay in edit mode.
+            }
+        }
+
+        private static string HealthSummary()
+        {
+            var lines = new List<string>();
+            foreach (var (reporter, issue) in SubsystemHealth.AllIssues())
+                if (issue.Severity >= SubsystemHealthSeverity.Warning)
+                    lines.Add($"• {reporter.SubsystemType.Name}: {issue.Message}");
+            return string.Join("\n", lines);
         }
 
         private static void Prompt(string names)

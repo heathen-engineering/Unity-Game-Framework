@@ -40,6 +40,7 @@ namespace Heathen.Editor
         private List<Info> _all;
         private Dictionary<Type, SubsystemScope> _scopeOf;
         private Dictionary<Type, ISubsystemConfigEditor> _editors;
+        private Dictionary<Type, List<SubsystemIssue>> _issuesByType;
         private Vector2 _scroll;
 
         public SubsystemsSettingsProvider() : base("Project/Subsystems", SettingsScope.Project) { }
@@ -56,6 +57,15 @@ namespace Heathen.Editor
         public override void OnGUI(string searchContext)
         {
             if (_all == null) Discover();
+
+            // Re-query health each repaint (once, shared by all rows) so badges reflect live edits.
+            _issuesByType = new Dictionary<Type, List<SubsystemIssue>>();
+            foreach (var (reporter, issue) in SubsystemHealth.AllIssues())
+            {
+                if (!_issuesByType.TryGetValue(reporter.SubsystemType, out var list))
+                    _issuesByType[reporter.SubsystemType] = list = new List<SubsystemIssue>();
+                list.Add(issue);
+            }
 
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
             EditorGUILayout.HelpBox(
@@ -89,10 +99,17 @@ namespace Heathen.Editor
 
         private void DrawRow(Info info)
         {
-            EditorGUILayout.Space(2);
-            EditorGUILayout.LabelField(info.Type.Name, EditorStyles.boldLabel);
-            using (new EditorGUI.IndentLevelScope())
+            // One always-expanded card per subsystem so the list reads as distinct entries, not a wall of text.
+            using (HeathenEditorStyles.BeginCard())
             {
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    EditorGUILayout.LabelField(info.Type.Name, HeathenEditorStyles.CardTitle);
+                    GUILayout.FlexibleSpace();
+                    DrawHeaderChip(info.Type);
+                }
+                using (HeathenEditorStyles.Indent())
+                {
                 EditorGUILayout.LabelField("Type", info.Type.FullName);
 
                 // Start mode: editable here when the subsystem's tool provides an ISubsystemConfigEditor (this is
@@ -105,8 +122,6 @@ namespace Heathen.Editor
                         if (check.changed)
                             editor.StartMode = mode; // setter persists
                     }
-                    if (!string.IsNullOrEmpty(editor.ApplyHint))
-                        EditorGUILayout.HelpBox(editor.ApplyHint, MessageType.None);
                 }
                 else
                 {
@@ -132,7 +147,43 @@ namespace Heathen.Editor
                             $"Cross-scope dependency: '{dep.Name}' is {depScope} but this subsystem is {info.Scope}. " +
                             "Dependencies are resolved within the same scope.", MessageType.Warning);
                 }
+                }
             }
+        }
+
+        // ── Health chip ────────────────────────────────────────────────────────────
+
+        // A compact status chip in the card header (worst-severity colour + icon + label), instead of a big
+        // banner. Same solid button look as a tool's own Build/Ready button; the label is the issue's action
+        // ("Build", "Open Settings", …) and clicking it runs that action. All messages show in the tooltip.
+        private void DrawHeaderChip(Type type)
+        {
+            if (_issuesByType == null || !_issuesByType.TryGetValue(type, out var issues) || issues.Count == 0)
+                return;
+
+            SubsystemIssue top = issues[0];
+            foreach (var i in issues) if (i.Severity > top.Severity) top = i;
+
+            Color bg = top.Severity switch
+            {
+                SubsystemHealthSeverity.Error   => HeathenEditorStyles.StatusRed,
+                SubsystemHealthSeverity.Warning => HeathenEditorStyles.Amber,
+                _                               => HeathenEditorStyles.Accent,
+            };
+            string iconName = top.Severity switch
+            {
+                SubsystemHealthSeverity.Error   => "console.erroricon",
+                SubsystemHealthSeverity.Warning => "console.warnicon",
+                _                               => "console.infoicon",
+            };
+            string label = !string.IsNullOrEmpty(top.ActionLabel) ? top.ActionLabel : top.Severity.ToString();
+            string tip   = string.Join("\n", issues.Select(i => "• " + i.Message));
+            var    icon  = EditorGUIUtility.IconContent(iconName).image;
+
+            if (GUILayout.Button(new GUIContent(" " + label, icon, tip),
+                    HeathenEditorStyles.SolidToolbarButton(bg),
+                    GUILayout.Width(Mathf.Max(78f, 34f + label.Length * 7f))))
+                top.Action?.Invoke();
         }
 
         // ── Discovery ──────────────────────────────────────────────────────────

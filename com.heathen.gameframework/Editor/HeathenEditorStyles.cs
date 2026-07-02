@@ -40,6 +40,14 @@ namespace Heathen.Editor
         private static GUIStyle _cardTitle;
         public static GUIStyle CardTitle => _cardTitle ??= new GUIStyle(EditorStyles.boldLabel) { fontSize = 12 };
 
+        private static GUIStyle _cardTitleLink;
+        /// <summary>Card title styled as a link (accent colour) — signals a clickable header.</summary>
+        public static GUIStyle CardTitleLink => _cardTitleLink ??= new GUIStyle(CardTitle)
+        {
+            normal = { textColor = Accent },
+            hover  = { textColor = Accent },
+        };
+
         // Status colours for the Build button (solid toolbar buttons).
         public static readonly Color StatusGreen = new(0.30f, 0.72f, 0.35f); // up to date / "Ready"
         public static readonly Color StatusRed    = new(0.85f, 0.32f, 0.32f); // error

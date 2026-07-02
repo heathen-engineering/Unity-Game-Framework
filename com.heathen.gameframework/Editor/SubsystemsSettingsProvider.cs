@@ -40,6 +40,8 @@ namespace Heathen.Editor
         private List<Info> _all;
         private Dictionary<Type, SubsystemScope> _scopeOf;
         private Dictionary<Type, ISubsystemConfigEditor> _editors;
+        private Dictionary<Type, ISubsystemSettingsPage> _pages;
+        private Dictionary<Type, string> _docs;
         private Dictionary<Type, List<SubsystemIssue>> _issuesByType;
         private Vector2 _scroll;
 
@@ -104,7 +106,8 @@ namespace Heathen.Editor
             {
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    EditorGUILayout.LabelField(info.Type.Name, HeathenEditorStyles.CardTitle);
+                    DrawHeaderTitle(info.Type);
+                    DrawHeaderHelp(info.Type);
                     GUILayout.FlexibleSpace();
                     DrawHeaderChip(info.Type);
                 }
@@ -151,6 +154,38 @@ namespace Heathen.Editor
             }
         }
 
+        // The card header title. When the subsystem's tool provides an ISubsystemSettingsPage, the title is a
+        // clickable link that tells the tool it was clicked (which normally opens its own settings page).
+        private void DrawHeaderTitle(Type type)
+        {
+            var content  = new GUIContent(type.Name);
+            bool linkable = _pages != null && _pages.ContainsKey(type);
+            var rect = GUILayoutUtility.GetRect(content, HeathenEditorStyles.CardTitle, GUILayout.ExpandWidth(false));
+            GUI.Label(rect, content, linkable ? HeathenEditorStyles.CardTitleLink : HeathenEditorStyles.CardTitle);
+
+            if (!linkable) return;
+            EditorGUIUtility.AddCursorRect(rect, MouseCursor.Link);
+            if (Event.current.type == EventType.MouseDown && rect.Contains(Event.current.mousePosition))
+            {
+                try { _pages[type].Open(); }
+                catch (Exception e) { Debug.LogError($"[GameFramework] ISubsystemSettingsPage for '{type.Name}'.Open threw: {e}"); }
+                Event.current.Use();
+            }
+        }
+
+        // Unity's round help (?) icon beside the header, when the tool supplies a documentation URL.
+        private void DrawHeaderHelp(Type type)
+        {
+            if (_docs == null || !_docs.TryGetValue(type, out var url) || string.IsNullOrEmpty(url)) return;
+
+            var help = EditorGUIUtility.IconContent("_Help");
+            bool hasIcon = help != null && help.image != null;
+            var content = hasIcon ? new GUIContent(help.image, "Open documentation") : new GUIContent("?", "Open documentation");
+            var style   = hasIcon ? GUIStyle.none : EditorStyles.miniButton;
+            if (GUILayout.Button(content, style, GUILayout.Width(18), GUILayout.Height(18)))
+                Application.OpenURL(url);
+        }
+
         // ── Health chip ────────────────────────────────────────────────────────────
 
         // A compact status chip in the card header (worst-severity colour + icon + label), instead of a big
@@ -193,6 +228,40 @@ namespace Heathen.Editor
             _all     = new List<Info>();
             _scopeOf = new Dictionary<Type, SubsystemScope>();
             _editors = new Dictionary<Type, ISubsystemConfigEditor>();
+            _pages   = new Dictionary<Type, ISubsystemSettingsPage>();
+            _docs    = new Dictionary<Type, string>();
+
+            // Tool-provided header-click handlers (open the tool's settings page), discovered by type.
+            foreach (var pt in TypeCache.GetTypesDerivedFrom<ISubsystemSettingsPage>())
+            {
+                if (pt.IsAbstract || pt.IsInterface) continue;
+                try
+                {
+                    var page = (ISubsystemSettingsPage)Activator.CreateInstance(pt);
+                    if (page.SubsystemType != null)
+                        _pages[page.SubsystemType] = page;
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"[GameFramework] Could not create subsystem settings-page link '{pt.FullName}': {e.Message}");
+                }
+            }
+
+            // Tool-provided documentation URLs for the header ? button, discovered by type.
+            foreach (var dt in TypeCache.GetTypesDerivedFrom<ISubsystemDocumentation>())
+            {
+                if (dt.IsAbstract || dt.IsInterface) continue;
+                try
+                {
+                    var doc = (ISubsystemDocumentation)Activator.CreateInstance(dt);
+                    if (doc.SubsystemType != null && !string.IsNullOrEmpty(doc.DocumentationUrl))
+                        _docs[doc.SubsystemType] = doc.DocumentationUrl;
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"[GameFramework] Could not create subsystem documentation link '{dt.FullName}': {e.Message}");
+                }
+            }
 
             // Tool-provided start-mode editors, discovered by type (no reference to the tool needed).
             foreach (var et in TypeCache.GetTypesDerivedFrom<ISubsystemConfigEditor>())
